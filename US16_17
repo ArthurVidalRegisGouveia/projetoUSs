@@ -1,0 +1,606 @@
+package com.ufcg.psoft.commerce.controller;
+
+import com.ufcg.psoft.commerce.model.TipoAtivo;
+import com.ufcg.psoft.commerce.repository.CarteiraPosicaoRepository;
+import com.ufcg.psoft.commerce.service.admin.AdminService;
+import com.ufcg.psoft.commerce.service.cliente.ClienteService;
+import com.ufcg.psoft.commerce.service.resgate.ResgateService;
+import com.ufcg.psoft.commerce.service.notificacao.NotificacaoService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import java.time.LocalDate;
+
+@RestController
+@RequestMapping(
+        value = "/resgates",
+        produces = MediaType.APPLICATION_JSON_VALUE
+)
+@Tag(name = "resgate-controller", description = "Controlador dos resgates")
+public class ResgateController {
+
+    @Autowired
+    private ResgateService resgateService;
+
+    @Autowired
+    private ClienteService clienteService;
+
+    @Autowired
+    private AdminService adminService;
+
+    @Autowired
+    private NotificacaoService notificacaoService;
+
+
+    @PostMapping("/resgatar-ativo")
+    @Operation(summary = "Permite ao cliente resgatar ativos")
+    public ResponseEntity<?> resgatarAtivo(
+            @RequestParam Long idCliente,
+            @RequestParam String codigoCliente,
+            @RequestParam Long idAtivo,
+            @RequestParam Integer quantidade) {
+
+        clienteService.validarCliente(idCliente, codigoCliente);
+        resgateService.resgatarAtivo(idCliente, codigoCliente, idAtivo, quantidade);
+
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body("");
+    }
+    @PatchMapping("/{id}/confirmar-solicitacao")
+    @Operation(summary = "Permite ao admin confirmar a solitação de um resgate")
+    public ResponseEntity<?> confirmarSolicitacaoResgate(
+            @PathVariable Long id,
+            @RequestParam String codigoAdmin) {
+
+        adminService.validarAdmin(codigoAdmin);
+
+        resgateService.processarSolicitacaoAdmin(id);
+
+        return ResponseEntity
+                .status(HttpStatus.NO_CONTENT)
+                .body("");
+    }
+}
+
+
+
+
+
+
+package com.ufcg.psoft.commerce.exception.resgate;
+
+import com.ufcg.psoft.commerce.exception.CommerceException;
+
+public class ClienteNaoPossuiQtdException extends CommerceException {
+    public ClienteNaoPossuiQtdException() {
+        super("A quantidade informada é maior do que o cliente possui na carteira");
+    }
+}
+
+
+
+
+package com.ufcg.psoft.commerce.exception.resgate;
+
+import com.ufcg.psoft.commerce.exception.CommerceException;
+
+public class ResgateNaoSolicitadoException extends CommerceException {
+    public ResgateNaoSolicitadoException() {
+        super("O resgate não está com status solicitado");
+    }
+}
+
+
+
+package com.ufcg.psoft.commerce.model;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.ufcg.psoft.commerce.model.estados.compra.*;
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import java.time.LocalDate;
+
+@Entity
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class Compra {
+
+    @JsonProperty("id")
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE)
+    private Long id;
+
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    @Column(nullable = false)
+    private LocalDate dataCompra;
+
+    @JsonProperty
+    @JoinColumn(name = "ativo_id", nullable = false)
+    @ManyToOne(optional = false)
+    private Ativo ativo;
+
+    @JsonProperty
+    @JoinColumn(name = "cliente_id", nullable = false)
+    @ManyToOne(optional = false)
+    private Cliente cliente;
+
+    @JsonProperty("quantidade")
+    @Column(nullable = false)
+    private int quantidade;
+
+    @JsonProperty("valor_compra")
+    @Column(nullable = false)
+    private double valorCompra;
+
+    @JsonProperty("estado")
+    @Column(nullable = false)
+    private String estado;
+
+    @Transient
+    private EstadoCompra estadoCompra;
+
+    @PrePersist
+    @PreUpdate
+    public void initEstado() {
+        if (estadoCompra == null) {
+            setEstadoCompra(new Solicitado());
+            this.estado = estadoCompra.getNome();
+      }
+    }
+    @PostLoad
+    public void carregarEstado() {
+       switch (this.estado) {
+            case "SOLICITADO":
+               this.estadoCompra = new Solicitado();
+                break;
+            case "COMPRADO":
+               this.estadoCompra = new Comprado(this);
+                break;
+                case "DISPONIVEL":
+                    this.estadoCompra = new Disponivel(this);
+                   break;
+            case "EM CARTEIRA":
+                this.estadoCompra = new EmCarteira(this);
+        }
+    }
+
+    public void processar() {
+        this.estadoCompra.processar(this);
+    }
+}
+
+
+
+
+package com.ufcg.psoft.commerce.model;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.ufcg.psoft.commerce.model.estados.resgate.*;
+import com.ufcg.psoft.commerce.model.estados.resgate.Confirmado;
+import com.ufcg.psoft.commerce.model.estados.resgate.EstadoResgate;
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import java.time.LocalDate;
+
+@Entity
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class Resgate {
+
+    @JsonProperty("id")
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE)
+    private Long id;
+
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    @Column(nullable = false)
+    private LocalDate dataResgate;
+
+    @JsonProperty
+    @JoinColumn(name = "ativo_id", nullable = false)
+    @ManyToOne(optional = false)
+    private Ativo ativo;
+
+    @JsonProperty
+    @JoinColumn(name = "cliente_id", nullable = false)
+    @ManyToOne(optional = false)
+    private Cliente cliente;
+
+    @JsonProperty("quantidade")
+    @Column(nullable = false)
+    private int quantidade;
+
+    @JsonProperty("valor_resgate")
+    @Column(nullable = false)
+    private double valorResgate;
+
+    @JsonProperty("estado")
+    @Column(nullable = false)
+    private String estado;
+
+    @JsonProperty("lucro")
+    @Column(nullable = false)
+    private double lucro;
+
+    @JsonProperty("imposto")
+    @Column(nullable = false)
+    private double imposto;
+
+    @Transient
+    private EstadoResgate estadoResgate;
+
+
+    @PrePersist
+    @PreUpdate
+    public void initEstado() {
+        if (estadoResgate == null) {
+            setEstadoResgate(new Solicitado());
+            this.estado = estadoResgate.getNome();
+        }
+    }
+    @PostLoad
+    public void carregarEstado() {
+        switch (this.estado) {
+            case "SOLICITADO":
+                this.estadoResgate = new Solicitado();
+                break;
+            case "CONFIRMADO":
+                this.estadoResgate = new Confirmado(this);
+                break;
+            case "EM CONTA":
+                this.estadoResgate = new EmConta(this);
+                break;
+        }
+    }
+
+    public void processar() {
+        this.estadoResgate.processarResgate(this);
+    }
+}
+
+
+
+
+
+
+package com.ufcg.psoft.commerce.service.carteira;
+
+import com.ufcg.psoft.commerce.model.Carteira;
+import com.ufcg.psoft.commerce.model.Resgate;
+
+public interface CarteiraService {
+    void addCompraCarteira(Long idCliente, Long idCompra);
+    void removePosicaoCarteira(Carteira carteira, Resgate resgate);
+}
+
+
+
+package com.ufcg.psoft.commerce.service.carteira;
+
+import com.ufcg.psoft.commerce.exception.cliente.ClienteNaoExisteException;
+import com.ufcg.psoft.commerce.exception.cliente.ClienteNaoPossuiCarteiraException;
+import com.ufcg.psoft.commerce.exception.compra.CompraNaoExisteException;
+import com.ufcg.psoft.commerce.exception.compra.QuantidadeAtivoException;
+import com.ufcg.psoft.commerce.exception.resgate.ClienteNaoPossuiAtivoException;
+import com.ufcg.psoft.commerce.model.*;
+import com.ufcg.psoft.commerce.model.estados.resgate.Solicitado;
+import com.ufcg.psoft.commerce.repository.CarteiraPosicaoRepository;
+import com.ufcg.psoft.commerce.repository.CarteiraRepository;
+import com.ufcg.psoft.commerce.repository.ClienteRepository;
+import com.ufcg.psoft.commerce.repository.CompraRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDate;
+import java.util.ArrayList;
+
+@Service
+public class CarteiraServiceImpl implements CarteiraService {
+
+    @Autowired
+    private ClienteRepository clienteRepository;
+
+    @Autowired
+    private CarteiraRepository carteiraRepository;
+
+    @Autowired
+    private CompraRepository compraRepository;
+
+    @Autowired
+    private CarteiraPosicaoRepository carteiraPosicaoRepository;
+
+    public void addCompraCarteira(Long idCliente, Long idCompra) {
+        Cliente cliente = clienteRepository.findById(idCliente).orElseThrow(ClienteNaoExisteException::new);
+        Compra compra = compraRepository.findById(idCompra).orElseThrow(CompraNaoExisteException::new);
+
+        if (cliente.getCarteira() == null) criaCarteira(cliente);
+        Carteira carteira = cliente.getCarteira();
+
+        carteira.addCompra(compra);
+        addPosicaoCarteira(carteira, compra);
+    }
+
+    private void criaCarteira(Cliente cliente) {
+        Carteira carteira = Carteira.builder()
+                .cliente(cliente)
+                .compras(new ArrayList<>())
+                .build();
+
+        carteiraRepository.save(carteira);
+
+        cliente.setCarteira(carteira);
+        clienteRepository.save(cliente);
+    }
+
+    private void addPosicaoCarteira(Carteira carteira, Compra compra) {
+        Ativo ativo = compra.getAtivo();
+        Integer quantidade = compra.getQuantidade();
+        Double valor = compra.getValorCompra();
+        Double valorAtivo = compra.getAtivo().getValor();
+        double desempenho = (valorAtivo * quantidade - valor);
+
+        CarteiraPosicao pos = carteiraPosicaoRepository.findByCarteiraIdAndAtivoId(carteira.getId(), ativo.getId());
+        if (pos != null) {
+            pos.setQuantidade(pos.getQuantidade() + quantidade);
+            pos.setValorCompra(pos.getValorCompra() + valor);
+            pos.setDesempenho(pos.getDesempenho() + desempenho);
+            carteiraPosicaoRepository.save(pos);
+        }
+        else {
+            CarteiraPosicao nova = CarteiraPosicao.builder()
+                    .carteira(carteira)
+                    .ativo(ativo)
+                    .valorCompra(compra.getValorCompra())
+                    .quantidade(quantidade)
+                    .desempenho(desempenho)
+                    .build();
+            carteiraPosicaoRepository.save(nova);
+        }
+
+        carteiraRepository.save(carteira);
+    }
+
+    public void removePosicaoCarteira(Carteira carteira, Resgate resgate) {
+        CarteiraPosicao pos = carteiraPosicaoRepository.findByCarteiraIdAndAtivoId(carteira.getId(), resgate.getAtivo().getId());
+        if(pos == null) throw new ClienteNaoPossuiAtivoException();
+        if(resgate.getQuantidade() <= 0) throw new QuantidadeAtivoException();
+
+        double valorPorAtivo = pos.getValorCompra() / pos.getQuantidade();
+
+        pos.setQuantidade(pos.getQuantidade() - resgate.getQuantidade());
+        pos.setValorCompra(pos.getValorCompra() - (resgate.getQuantidade() * valorPorAtivo));
+        if(pos.getQuantidade() == 0) carteiraPosicaoRepository.delete(pos);
+        Cliente cliente = resgate.getCliente();
+        cliente.setSaldo(resgate.getValorResgate());
+
+        carteiraPosicaoRepository.save(pos);
+        carteiraRepository.save(carteira);
+        clienteRepository.save(cliente);
+    }
+}
+
+
+package com.ufcg.psoft.commerce.service.notificacao;
+import com.ufcg.psoft.commerce.model.Ativo;
+
+public interface NotificacaoService {
+    void notificarDisponivel(Ativo ativo, double novoValor);
+    void notificarIndisponivel(Ativo ativo);
+    void notificarDisponibilidadeCompra(Long idCompra);
+    void notificarConfirmacaoResgate(Long id);
+}
+
+
+
+package com.ufcg.psoft.commerce.service.notificacao;
+
+import com.ufcg.psoft.commerce.exception.compra.CompraNaoExisteException;
+import com.ufcg.psoft.commerce.model.*;
+import com.ufcg.psoft.commerce.repository.CompraRepository;
+import com.ufcg.psoft.commerce.repository.InteresseRepository;
+import com.ufcg.psoft.commerce.repository.ResgateRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import java.util.List;
+
+@Service
+public class NotificacaoServiceImpl implements NotificacaoService {
+
+    @Autowired
+    private InteresseRepository interesseRepository;
+    @Autowired
+    private CompraRepository compraRepository;
+    @Autowired
+    private ResgateRepository resgateRepository;
+
+    @Override
+    public void notificarDisponivel(Ativo ativo, double novoValor) {
+        String notificacao = "!!!!!!!!!!!!!!!!!!!!![NOTIFICAÇÃO PREMIUM]!!!!!!!!!!!!!!!!!!!!! \nClientes PREMIUM: \n";
+        List<Interesse> interesses = interesseRepository.findByAtivo(ativo);
+
+        for(Interesse interesse: interesses) {
+            if (interesse.getCliente().getPlano() == TipoPlano.PREMIUM)
+                notificacao += interesse.getCliente().getNome() + " (ID: " + interesse.getCliente().getId() + ")\n";
+        }
+        notificacao += "\n[ATENÇÃO] O ativo " + ativo.getNome() + " (ID: " + ativo.getId() + ") mudou o seu preço de " + ativo.getValor() + " para " + novoValor;
+        notificacao += "\n!!!!!!!!!!!!!!!!!!!!![FIM DA NOTIFICAÇÂO]!!!!!!!!!!!!!!!!!!!!! \n";
+
+        if(!interesses.isEmpty() && ativo.isDisponivel()) System.out.println(notificacao);
+    }
+
+    @Override
+    public void notificarIndisponivel(Ativo ativo) {
+        String notificacao = "!!!!!!!!!!!!!!!!!!!!![NOTIFICAÇÃO]!!!!!!!!!!!!!!!!!!!!! \nClientes: \n";
+        List<Interesse> interesses = interesseRepository.findByAtivo(ativo);
+
+        for(Interesse interesse: interesses) notificacao +=  interesse.getCliente().getNome() + " (ID: " + interesse.getCliente().getId() + ")\n";
+        notificacao += "\n[ATENÇÃO] O ativo " + ativo.getNome() + " (ID: " + ativo.getId() + ") ficou disponível para compra." ;
+        notificacao += "\n!!!!!!!!!!!!!!!!!!!!![FIM DA NOTIFICAÇÂO]!!!!!!!!!!!!!!!!!!!!! \n";
+
+        if(!interesses.isEmpty() && !ativo.isDisponivel()) System.out.println(notificacao);
+        }
+
+    @Override
+    public void notificarDisponibilidadeCompra(Long idCompra) {
+        String notificacao = "!!!!!!!!!!!!!!!!!!!!![NOTIFICAÇÃO DE COMPRA]!!!!!!!!!!!!!!!!!!!!! \nCliente: \n";
+        Compra compra = compraRepository.findById(idCompra).orElseThrow(CompraNaoExisteException::new);
+
+        notificacao += compra.getCliente().getNome() + " (ID: " + compra.getCliente().getId() + ")\n";
+        notificacao += "\n[ATENÇÃO] O ativo " + compra.getAtivo().getNome() + " (ID: " + compra.getAtivo().getId() + ") está disponível para compra (ID da compra: " + compra.getId() + ")";
+        notificacao += "\n!!!!!!!!!!!!!!!!!!!!![FIM DA NOTIFICAÇÂO]!!!!!!!!!!!!!!!!!!!!! \n";
+
+        System.out.println(notificacao);
+    }
+
+    @Override
+    public void notificarConfirmacaoResgate(Long id) {
+        String notificacao = "!!!!!!!!!!!!!!!!!!!!![NOTIFICAÇÃO DE RESGATE]!!!!!!!!!!!!!!!!!!!!! \nCliente: \n";
+        Resgate resgate = resgateRepository.findById(id).orElseThrow(CompraNaoExisteException::new);
+
+        notificacao += resgate.getCliente().getNome() + " (ID: " + resgate.getCliente().getId() + ")\n";
+        notificacao += "\n[ATENÇÃO] A solicitação de resgate do ativo " + resgate.getAtivo().getNome() + " (ID: " + resgate.getAtivo().getId() + ") foi confirmada pelo ADMIN e o lucro foi depositado na sua conta (ID do resgate: " + resgate.getId() + ")";
+        notificacao += "\n!!!!!!!!!!!!!!!!!!!!![FIM DA NOTIFICAÇÂO]!!!!!!!!!!!!!!!!!!!!! \n";
+
+        System.out.println(notificacao);
+    }
+}
+
+
+
+package com.ufcg.psoft.commerce.service.resgate;
+
+import com.ufcg.psoft.commerce.dto.CompraResponseDTO;
+import com.ufcg.psoft.commerce.model.TipoAtivo;
+import java.time.LocalDate;
+import java.util.List;
+
+public interface ResgateService {
+    void resgatarAtivo(Long clienteId, String codigoAcesso, Long ativoId, Integer quantAtivo);
+    void processarSolicitacaoAdmin(Long id);
+}
+
+
+
+
+package com.ufcg.psoft.commerce.service.resgate;
+
+import com.ufcg.psoft.commerce.exception.cliente.ClienteNaoExisteException;
+import com.ufcg.psoft.commerce.exception.cliente.ClienteNaoPossuiCarteiraException;
+import com.ufcg.psoft.commerce.exception.cliente.SaldoIndisponivelException;
+import com.ufcg.psoft.commerce.exception.compra.CompraNaoExisteException;
+import com.ufcg.psoft.commerce.exception.compra.CompraNaoSolicitadaException;
+import com.ufcg.psoft.commerce.exception.compra.QuantidadeAtivoException;
+import com.ufcg.psoft.commerce.exception.resgate.*;
+import com.ufcg.psoft.commerce.model.*;
+import com.ufcg.psoft.commerce.model.estados.resgate.Solicitado;
+import com.ufcg.psoft.commerce.repository.*;
+import com.ufcg.psoft.commerce.service.carteira.CarteiraService;
+import com.ufcg.psoft.commerce.service.cliente.ClienteService;
+import com.ufcg.psoft.commerce.service.imposto.ImpostoService;
+import com.ufcg.psoft.commerce.service.notificacao.NotificacaoService;
+import jakarta.transaction.Transactional;
+import org.modelmapper.ModelMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDate;
+
+@Service
+public class ResgateServiceImpl implements ResgateService {
+
+    @Autowired
+    private ClienteRepository clienteRepository;
+
+    @Autowired
+    private ClienteService clienteService;
+
+    @Autowired
+    private ResgateRepository resgateRepository;
+
+    @Autowired
+    private AtivoRepository ativoRepository;
+
+    @Autowired
+    private ModelMapper modelMapper;
+
+    @Autowired
+    private NotificacaoService notificacaoService;
+
+    @Autowired
+    private CarteiraPosicaoRepository carteiraPosicaoRepository;
+
+    @Autowired
+    private CarteiraRepository carteiraRepository;
+
+    @Autowired
+    private ImpostoService impostoService;
+
+    @Autowired
+    private CarteiraService carteiraService;
+
+
+    @Override
+    @Transactional
+    public void resgatarAtivo(Long clienteId, String codigoAcesso, Long ativoId, Integer quantAtivo) {
+        Cliente cliente = clienteRepository.findById(clienteId).orElseThrow(ClienteNaoExisteException::new);
+        Carteira carteira = carteiraRepository.findById(cliente.getCarteira().getId()).orElseThrow(ClienteNaoPossuiCarteiraException::new);
+        CarteiraPosicao pos = carteiraPosicaoRepository.findByCarteiraIdAndAtivoId(carteira.getId(), ativoId);
+
+        if(pos == null) throw new ClienteNaoPossuiAtivoException();
+        if(quantAtivo <= 0) throw new QuantidadeAtivoException();
+        if(quantAtivo > pos.getQuantidade()) throw new ClienteNaoPossuiQtdException();
+
+        double valorResgate = (pos.getAtivo().getValor() * quantAtivo);
+        double lucro = pos.getDesempenho();
+        double imposto = impostoService.calcularImposto(pos.getAtivo(), lucro);
+
+        Resgate resgate = Resgate.builder()
+                .cliente(cliente)
+                .ativo(pos.getAtivo())
+                .dataResgate(LocalDate.now())
+                .quantidade(quantAtivo)
+                .valorResgate(valorResgate)
+                .estadoResgate(new Solicitado())
+                .lucro(lucro)
+                .imposto(imposto)
+                .estado("SOLICITADO")
+                .build();
+        resgateRepository.save(resgate);
+    }
+
+    @Override
+    public void processarSolicitacaoAdmin(Long id) {
+        Resgate resgate = resgateRepository.findById(id).orElseThrow(ResgateNaoSolicitadoException::new);
+        Carteira carteira = carteiraRepository.findByClienteId(resgate.getCliente().getId());
+
+        if(!resgate.getEstado().equals("SOLICITADO")) throw new ResgateNaoSolicitadoException();
+
+        resgate.processar(); //status confirmado
+
+        carteiraService.removePosicaoCarteira(carteira, resgate);
+
+        notificacaoService.notificarConfirmacaoResgate(id);
+
+        resgate.processar(); //status em conta
+
+        resgateRepository.save(resgate);
+    }
+}
