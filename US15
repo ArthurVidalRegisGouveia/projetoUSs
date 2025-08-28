@@ -1,0 +1,345 @@
+package com.ufcg.psoft.commerce.dto;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import com.ufcg.psoft.commerce.model.Compra;
+import com.ufcg.psoft.commerce.model.Resgate;
+import jakarta.persistence.*;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import java.time.LocalDate;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class ResgateResponseDTO {
+
+    @JsonProperty("ID do resgate")
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE)
+    private Long id;
+
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    @NotNull
+    private LocalDate dataResgate;
+
+    @JsonProperty("Nome do cliente")
+    @NotBlank
+    private String  nomeDoCliente;
+
+    @JsonProperty("Nome do ativo")
+    @NotBlank
+    private String nomeDoativo;
+
+    @JsonProperty("Valor do resgate")
+    @NotNull
+    private double valorResgate;
+
+    @JsonProperty("Quantidade")
+    @NotNull
+    private int quantidade;
+
+
+    @JsonProperty("Estado do Resgate")
+    @NotBlank
+    private String estado;
+
+    @JsonProperty("Lucro do resgate")
+    @NotNull
+    private double lucro;
+
+    @JsonProperty("imposto do resgate")
+    @NotNull
+    private double imposto;
+
+
+    public ResgateResponseDTO(Resgate resgate) {
+        this.id = resgate.getId();
+        this.nomeDoCliente = resgate.getCliente().getNome();
+        this.nomeDoativo = resgate.getAtivo().getNome();
+        this.quantidade = resgate.getQuantidade();
+        this.valorResgate = resgate.getValorResgate();
+        this.lucro = resgate.getLucro();
+        this.imposto = resgate.getImposto();
+        this.dataResgate = resgate.getDataResgate();
+        this.estado = resgate.getEstado();
+    }
+}
+
+package com.ufcg.psoft.commerce.model.imposto;
+
+public class AcaoImposto implements ImpostoStrategy{
+    @Override
+    public double calcular(double lucro) {
+        return 0.15 * lucro;
+    }
+}
+
+package com.ufcg.psoft.commerce.model.imposto;
+
+public class CriptomoedaImposto implements ImpostoStrategy{
+    @Override
+    public double calcular(double lucro) {
+        if(lucro <= 5000) {
+            return 0.15 * lucro;
+        }
+        return 0.225 * lucro;
+    }
+}
+
+package com.ufcg.psoft.commerce.model.imposto;
+
+import com.ufcg.psoft.commerce.model.Ativo;
+import com.ufcg.psoft.commerce.model.TipoAtivo;
+import org.springframework.stereotype.Component;
+
+@Component
+public class ImpostoFactory {
+
+    public ImpostoStrategy getStrategy(Ativo ativo) {
+        switch (ativo.getTipo()) {
+            case TESOURO_DIRETO:
+                return new TesouroDiretoImposto();
+            case ACAO:
+                return new AcaoImposto();
+            case CRIPTOMOEDA:
+                return new CriptomoedaImposto();
+            default:
+                throw new IllegalArgumentException("Ativo inválido");
+        }
+    }
+}
+
+
+package com.ufcg.psoft.commerce.model.imposto;
+
+public interface ImpostoStrategy {
+    double calcular(double lucro);
+}
+
+
+package com.ufcg.psoft.commerce.model.imposto;
+
+public class TesouroDiretoImposto implements ImpostoStrategy{
+    @Override
+    public double calcular(double lucro) {
+        return 0.1 * lucro;
+    }
+}
+
+
+package com.ufcg.psoft.commerce.model;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.ufcg.psoft.commerce.model.estados.resgate.*;
+import com.ufcg.psoft.commerce.model.estados.resgate.Confirmado;
+import com.ufcg.psoft.commerce.model.estados.resgate.EstadoResgate;
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import java.time.LocalDate;
+
+@Entity
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class Resgate {
+
+    @JsonProperty("id")
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE)
+    private Long id;
+
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    @Column(nullable = false)
+    private LocalDate dataResgate;
+
+    @JsonProperty
+    @JoinColumn(name = "ativo_id", nullable = false)
+    @ManyToOne(optional = false)
+    private Ativo ativo;
+
+    @JsonProperty
+    @JoinColumn(name = "cliente_id", nullable = false)
+    @ManyToOne(optional = false)
+    private Cliente cliente;
+
+    @JsonProperty("quantidade")
+    @Column(nullable = false)
+    private int quantidade;
+
+    @JsonProperty("valor_resgate")
+    @Column(nullable = false)
+    private double valorResgate;
+
+    @JsonProperty("estado")
+    @Column(nullable = false)
+    private String estado;
+
+    @JsonProperty("lucro")
+    @Column(nullable = false)
+    private double lucro;
+
+    @JsonProperty("imposto")
+    @Column(nullable = false)
+    private double imposto;
+
+    @Transient
+    private EstadoResgate estadoResgate;
+
+
+    @PrePersist
+    @PreUpdate
+    public void initEstado() {
+        if (estadoResgate == null) {
+            setEstadoResgate(new Solicitado());
+            this.estado = estadoResgate.getNome();
+        }
+    }
+    @PostLoad
+    public void carregarEstado() {
+        switch (this.estado) {
+            case "SOLICITADO":
+                this.estadoResgate = new Solicitado();
+                break;
+            case "CONFIRMADO":
+                this.estadoResgate = new Confirmado(this);
+                break;
+            case "EM CONTA":
+                this.estadoResgate = new EmConta(this);
+                break;
+        }
+    }
+}
+
+
+
+
+package com.ufcg.psoft.commerce.service.imposto;
+
+import com.ufcg.psoft.commerce.model.Ativo;
+
+public interface ImpostoService {
+    double calcularImposto(Ativo ativo, double lucro);
+}
+
+
+package com.ufcg.psoft.commerce.service.imposto;
+
+import com.ufcg.psoft.commerce.model.Ativo;
+import com.ufcg.psoft.commerce.model.imposto.ImpostoFactory;
+import com.ufcg.psoft.commerce.model.imposto.ImpostoStrategy;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+@Service
+public class ImpostoServiceImpl {
+
+    @Autowired
+    ImpostoFactory impostoFactory;
+
+    public double calcularImposto(Ativo ativo, double lucro) {
+        ImpostoStrategy strategy = impostoFactory.getStrategy(ativo);
+        return strategy.calcular(lucro);
+    }
+}
+
+
+
+package com.ufcg.psoft.commerce.service.resgate;
+
+import com.ufcg.psoft.commerce.exception.cliente.ClienteNaoExisteException;
+import com.ufcg.psoft.commerce.exception.cliente.ClienteNaoPossuiCarteiraException;
+import com.ufcg.psoft.commerce.exception.cliente.SaldoIndisponivelException;
+import com.ufcg.psoft.commerce.exception.compra.QuantidadeAtivoException;
+import com.ufcg.psoft.commerce.exception.resgate.*;
+import com.ufcg.psoft.commerce.model.*;
+import com.ufcg.psoft.commerce.model.estados.resgate.Solicitado;
+import com.ufcg.psoft.commerce.repository.*;
+import com.ufcg.psoft.commerce.service.carteira.CarteiraService;
+import com.ufcg.psoft.commerce.service.cliente.ClienteService;
+import com.ufcg.psoft.commerce.service.imposto.ImpostoService;
+import com.ufcg.psoft.commerce.service.notificacao.NotificacaoService;
+import jakarta.transaction.Transactional;
+import org.modelmapper.ModelMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDate;
+
+@Service
+public class ResgateServiceImpl implements ResgateService {
+
+    @Autowired
+    private ClienteRepository clienteRepository;
+
+    @Autowired
+    private ClienteService clienteService;
+
+    @Autowired
+    private ResgateRepository resgateRepository;
+
+    @Autowired
+    private AtivoRepository ativoRepository;
+
+    @Autowired
+    private ModelMapper modelMapper;
+
+    @Autowired
+    private NotificacaoService notificacaoService;
+
+    @Autowired
+    private CarteiraPosicaoRepository carteiraPosicaoRepository;
+
+    @Autowired
+    private CarteiraRepository carteiraRepository;
+
+    @Autowired
+    private ImpostoService impostoService;
+
+
+    @Override
+    @Transactional
+    public void resgatarAtivo(Long clienteId, String codigoAcesso, Long ativoId, Integer quantAtivo) {
+        Cliente cliente = clienteRepository.findById(clienteId).orElseThrow(ClienteNaoExisteException::new);
+        Carteira carteira = carteiraRepository.findById(cliente.getCarteira().getId()).orElseThrow(ClienteNaoPossuiCarteiraException::new);
+        CarteiraPosicao pos = carteiraPosicaoRepository.findByCarteiraIdAndAtivoId(carteira.getId(), ativoId);
+
+        if(pos == null) throw new ClienteNaoPossuiAtivoException();
+        if(quantAtivo <= 0) throw new QuantidadeAtivoException();
+
+        double valorResgate = (pos.getAtivo().getValor() * quantAtivo);
+        double valorPorAtivo = pos.getValorCompra() / pos.getQuantidade();
+
+        double lucro = pos.getDesempenho();
+        double imposto = impostoService.calcularImposto(pos.getAtivo(), lucro);
+
+        pos.setQuantidade(pos.getQuantidade() - quantAtivo);
+        pos.setValorCompra(pos.getValorCompra() - (quantAtivo * valorPorAtivo));
+
+        Resgate resgate = Resgate.builder()
+                .cliente(cliente)
+                .ativo(pos.getAtivo())
+                .dataResgate(LocalDate.now())
+                .quantidade(quantAtivo)
+                .valorResgate(valorResgate)
+                .estadoResgate(new Solicitado())
+                .lucro(lucro)
+                .imposto(imposto)
+                .estado("SOLICITADO")
+                .build();
+        resgateRepository.save(resgate);
+        carteiraPosicaoRepository.save(pos);
+        carteiraRepository.save(carteira);
+    }
+}
