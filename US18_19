@@ -137,6 +137,11 @@ public interface ResgateService {
 
 
 
+
+
+
+
+
 package com.ufcg.psoft.commerce.service.resgate;
 
 import com.ufcg.psoft.commerce.dto.CompraResponseDTO;
@@ -276,7 +281,7 @@ public class ResgateServiceImpl implements ResgateService {
     public List<ResgateResponseDTO> listarPorDataCliente(Long idCliente, LocalDate data) {
         Cliente cliente = clienteRepository.findById(idCliente).orElseThrow(ClienteNaoExisteException::new);
 
-        return resgateRepository.findByClienteAndDataCompra(cliente, data)
+        return resgateRepository.findByClienteAndDataResgate(cliente, data)
                 .stream()
                 .map(ResgateResponseDTO::new)
                 .collect(Collectors.toList());
@@ -302,7 +307,7 @@ public class ResgateServiceImpl implements ResgateService {
 
     @Override
     public List<ResgateResponseDTO> listarPorData(LocalDate data) {
-        return resgateRepository.findByDataCompra(data).stream()
+        return resgateRepository.findByDataResgate(data).stream()
                 .map(ResgateResponseDTO::new)
                 .collect(Collectors.toList());
     }
