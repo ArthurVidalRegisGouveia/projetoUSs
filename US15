@@ -72,6 +72,9 @@ public class ResgateResponseDTO {
     }
 }
 
+
+
+
 package com.ufcg.psoft.commerce.model.imposto;
 
 public class AcaoImposto implements ImpostoStrategy{
@@ -80,6 +83,12 @@ public class AcaoImposto implements ImpostoStrategy{
         return 0.15 * lucro;
     }
 }
+
+
+
+
+
+
 
 package com.ufcg.psoft.commerce.model.imposto;
 
@@ -92,6 +101,11 @@ public class CriptomoedaImposto implements ImpostoStrategy{
         return 0.225 * lucro;
     }
 }
+
+
+
+
+
 
 package com.ufcg.psoft.commerce.model.imposto;
 
@@ -117,11 +131,18 @@ public class ImpostoFactory {
 }
 
 
+
+
+
+
 package com.ufcg.psoft.commerce.model.imposto;
 
 public interface ImpostoStrategy {
     double calcular(double lucro);
 }
+
+
+
 
 
 package com.ufcg.psoft.commerce.model.imposto;
@@ -132,6 +153,10 @@ public class TesouroDiretoImposto implements ImpostoStrategy{
         return 0.1 * lucro;
     }
 }
+
+
+
+
 
 
 package com.ufcg.psoft.commerce.model;
@@ -225,6 +250,9 @@ public class Resgate {
 
 
 
+
+
+
 package com.ufcg.psoft.commerce.service.imposto;
 
 import com.ufcg.psoft.commerce.model.Ativo;
@@ -232,6 +260,8 @@ import com.ufcg.psoft.commerce.model.Ativo;
 public interface ImpostoService {
     double calcularImposto(Ativo ativo, double lucro);
 }
+
+
 
 
 package com.ufcg.psoft.commerce.service.imposto;
@@ -243,7 +273,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
-public class ImpostoServiceImpl {
+public class ImpostoServiceImpl implements ImpostoService {
 
     @Autowired
     ImpostoFactory impostoFactory;
@@ -253,6 +283,7 @@ public class ImpostoServiceImpl {
         return strategy.calcular(lucro);
     }
 }
+
 
 
 
