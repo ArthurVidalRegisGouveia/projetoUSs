@@ -1,0 +1,389 @@
+package com.ufcg.psoft.commerce.controller;
+
+import com.ufcg.psoft.commerce.dto.ClientePostPutRequestDTO;
+import com.ufcg.psoft.commerce.service.admin.AdminService;
+import com.ufcg.psoft.commerce.service.cliente.ClienteService;
+import com.ufcg.psoft.commerce.service.extrato.ExtratoService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping(
+        value = "/clientes",
+        produces = MediaType.APPLICATION_JSON_VALUE
+)
+@Tag(name = "cliente-controller", description = "Controlador dos clientes")
+public class ClienteController {
+
+    @Autowired
+    private ClienteService clienteService;
+
+    @Autowired
+    private AdminService adminService;
+
+    @Autowired
+    private ExtratoService extratoService;
+
+    @GetMapping("/{id}")
+    @Operation(summary = "Permite um cliente ver o seu cadastro no sistema")
+    public ResponseEntity<?> recuperarCliente(
+            @PathVariable Long id,
+            @RequestParam String codigoCliente) {
+
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(clienteService.recuperar(id, codigoCliente));
+    }
+
+    @GetMapping("")
+    @Operation(summary = "Permite ao admin visualizar os clientes cadastrados sistema")
+    public ResponseEntity<?> listarClientes(
+            @RequestParam(required = false, defaultValue = "") String nome,
+            @RequestParam String codigoAdmin) {
+
+        adminService.validarAdmin(codigoAdmin);
+
+        if (nome != null && !nome.isEmpty()) {
+            return ResponseEntity
+                    .status(HttpStatus.OK)
+                    .body(clienteService.listarPorNome(nome));
+        }
+
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(clienteService.listar());
+    }
+
+    @PostMapping()
+    @Operation(summary = "Permite que o cliente se cadastre no sistema")
+    public ResponseEntity<?> criarCliente(
+            @RequestBody @Valid ClientePostPutRequestDTO clientePostPutRequestDto) {
+
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(clienteService.criar(clientePostPutRequestDto));
+    }
+
+    @PutMapping("/{id}")
+    @Operation(summary = "Permite ao cliente atualizar seus dados no sistema")
+    public ResponseEntity<?> atualizarCliente(
+            @PathVariable Long id,
+            @RequestParam String codigoCliente,
+            @RequestBody @Valid ClientePostPutRequestDTO clientePostPutRequestDto) {
+
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(clienteService.alterar(id, codigoCliente, clientePostPutRequestDto));
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Permite ao cliente excluir seu cadastro no sistema")
+    public ResponseEntity<?> excluirCliente(
+            @PathVariable Long id,
+            @RequestParam String codigoCliente) {
+
+        clienteService.remover(id, codigoCliente);
+
+        return ResponseEntity
+                .status(HttpStatus.NO_CONTENT)
+                .body("");
+    }
+
+    @GetMapping("/{id}/ativos-disponiveis")
+    @Operation(summary = "Permite ao cliente visualizar os ativos disponíveis para o seu plano")
+    public ResponseEntity<?> listarAtivosDisponiveis(
+            @PathVariable Long id,
+            @RequestParam String codigoCliente) {
+        return ResponseEntity.ok(clienteService.listarAtivosParaCliente(id, codigoCliente));
+    }
+
+    @PatchMapping("/{id}/depositar")
+    @Operation(summary = "Permite ao cliente realizar depositos em sua conta")
+    public ResponseEntity<?> depositarSaldo(
+            @PathVariable Long id,
+            @RequestParam String codigoCliente,
+            @RequestParam Double valorDeposito) {
+        return ResponseEntity.ok(clienteService.depositarSaldo(id, codigoCliente, valorDeposito));
+    }
+
+    @GetMapping("/{id}/visualizar-carteira")
+    @Operation(summary = "Permite um cliente visualizar sua carteira")
+    public ResponseEntity<?> visualizarCarteira(
+            @PathVariable Long id,
+            @RequestParam String codigoCliente) {
+
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(clienteService.visualizarCarteira(id, codigoCliente));
+    }
+
+
+    @GetMapping("/{id}/exportar-extrato")
+    @Operation(summary = "Permite um cliente exporte um extrato de todas as suas operações em formato csv")
+    public ResponseEntity<?> exportarExtrato(
+            @PathVariable Long id,
+            @RequestParam String codigoCliente) {
+
+        clienteService.validarCliente(id, codigoCliente);
+
+        String csv = extratoService.gerarExtrato(id);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=extrato-" + id+ ".csv")
+                .contentType(MediaType.valueOf("text/csv"))
+                .body(csv.getBytes());
+    }
+}
+
+
+
+
+
+
+
+package com.ufcg.psoft.commerce.service.cliente;
+
+import com.ufcg.psoft.commerce.dto.AtivoResponseDTO;
+import com.ufcg.psoft.commerce.dto.CarteiraPosicaoResponseDTO;
+import com.ufcg.psoft.commerce.dto.ClientePostPutRequestDTO;
+import com.ufcg.psoft.commerce.exception.cliente.ClienteNaoExisteException;
+import com.ufcg.psoft.commerce.exception.CodigoDeAcessoInvalidoException;
+import com.ufcg.psoft.commerce.exception.cliente.ClienteNaoPossuiCarteiraException;
+import com.ufcg.psoft.commerce.exception.cliente.ValorDeDepositoNegativoOuNulo;
+import com.ufcg.psoft.commerce.model.*;
+import com.ufcg.psoft.commerce.repository.AtivoRepository;
+import com.ufcg.psoft.commerce.repository.CarteiraPosicaoRepository;
+import com.ufcg.psoft.commerce.repository.ClienteRepository;
+import com.ufcg.psoft.commerce.dto.ClienteResponseDTO;
+import com.ufcg.psoft.commerce.model.Ativo;
+import org.modelmapper.ModelMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+public class ClienteServiceImpl implements ClienteService {
+
+    @Autowired
+    private ClienteRepository clienteRepository;
+
+    @Autowired
+    private AtivoRepository ativoRepository;
+
+    @Autowired
+    private ModelMapper modelMapper;
+
+    @Autowired
+    private CarteiraPosicaoRepository carteiraPosicaoRepository;
+    
+    @Override
+    public ClienteResponseDTO alterar(Long id, String codigoAcesso, ClientePostPutRequestDTO clientePostPutRequestDTO) {
+        Cliente cliente = clienteRepository.findById(id).orElseThrow(ClienteNaoExisteException::new);
+        validarCliente(id, codigoAcesso);
+
+        modelMapper.map(clientePostPutRequestDTO, cliente);
+        clienteRepository.save(cliente);
+        return modelMapper.map(cliente, ClienteResponseDTO.class);
+    }
+
+    @Override
+    public ClienteResponseDTO criar(ClientePostPutRequestDTO clientePostPutRequestDTO) {
+        Cliente cliente = modelMapper.map(clientePostPutRequestDTO, Cliente.class);
+        clienteRepository.save(cliente);
+        return modelMapper.map(cliente, ClienteResponseDTO.class);
+    }
+
+    @Override
+    public void remover(Long id, String codigoAcesso) {
+        Cliente cliente = clienteRepository.findById(id).orElseThrow(ClienteNaoExisteException::new);
+        validarCliente(id, codigoAcesso);
+        clienteRepository.delete(cliente);
+    }
+
+    @Override
+    public List<ClienteResponseDTO> listarPorNome(String nome) {
+        List<Cliente> clientes = clienteRepository.findByNomeContainingIgnoreCase(nome);
+        return clientes.stream()
+                .map(ClienteResponseDTO::new)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<ClienteResponseDTO> listar() {
+        List<Cliente> clientes = clienteRepository.findAll();
+        return clientes.stream()
+                .map(ClienteResponseDTO::new)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public ClienteResponseDTO recuperar(Long id, String codigoAcesso) {
+        Cliente cliente = clienteRepository.findById(id).orElseThrow(ClienteNaoExisteException::new);
+        validarCliente(id, codigoAcesso);
+        return new ClienteResponseDTO(cliente);
+    }
+
+    @Override
+    public List<AtivoResponseDTO> listarAtivosParaCliente(Long clienteId, String codigoAcesso) {
+        Cliente cliente = clienteRepository.findById(clienteId).orElseThrow(ClienteNaoExisteException::new);
+
+        validarCliente(clienteId, codigoAcesso);
+
+        List<Ativo> ativosDisponiveis = ativoRepository.findAll().stream().filter(Ativo::isDisponivel).toList();
+
+        if (cliente.getPlano() == TipoPlano.NORMAL) {
+            ativosDisponiveis = ativosDisponiveis.stream().filter(ativo -> ativo.getTipo() == TipoAtivo.TESOURO_DIRETO).toList();
+        }
+
+        return ativosDisponiveis.stream().map(AtivoResponseDTO::new).toList();
+    }
+
+    @Override
+    public void validarCliente(Long id, String codigoAcesso) {
+        Cliente cliente = clienteRepository.findById(id).orElseThrow(ClienteNaoExisteException::new);
+        if (!cliente.getCodigo().equals(codigoAcesso)) throw new CodigoDeAcessoInvalidoException();
+    }
+
+    @Override
+    @Transactional
+    public ClienteResponseDTO depositarSaldo(Long clienteId, String codigoAcesso, Double valorDeposito) {
+        Cliente cliente = clienteRepository.findById(clienteId).orElseThrow(ClienteNaoExisteException::new);
+
+        validarCliente(clienteId, codigoAcesso);
+
+        if (valorDeposito == null || valorDeposito <= 0) throw new ValorDeDepositoNegativoOuNulo();
+
+        cliente.setSaldo(cliente.getSaldo() + valorDeposito);
+        clienteRepository.save(cliente);
+        return modelMapper.map(cliente, ClienteResponseDTO.class);
+    }
+
+    @Override
+    public List<CarteiraPosicaoResponseDTO> visualizarCarteira(Long id, String codigoCliente) {
+        Cliente cliente = clienteRepository.findById(id).orElseThrow(ClienteNaoExisteException::new);
+        Carteira carteira = cliente.getCarteira();
+
+        validarCliente(id, codigoCliente);
+        if(carteira == null) throw new ClienteNaoPossuiCarteiraException();
+
+        List<CarteiraPosicao> posicoes = carteiraPosicaoRepository.findByCarteiraId(carteira.getId());
+        return posicoes.stream().map(CarteiraPosicaoResponseDTO::new).collect(Collectors.toList());
+    }
+}
+
+
+
+
+
+
+package com.ufcg.psoft.commerce.service.extrato;
+
+public interface ExtratoService {
+    String gerarExtrato(Long idCliente);
+}
+
+
+
+
+
+
+package com.ufcg.psoft.commerce.service.extrato;
+
+import com.ufcg.psoft.commerce.exception.cliente.ClienteNaoExisteException;
+import com.ufcg.psoft.commerce.model.Cliente;
+import com.ufcg.psoft.commerce.model.Compra;
+import com.ufcg.psoft.commerce.model.Resgate;
+import com.ufcg.psoft.commerce.repository.ClienteRepository;
+import com.ufcg.psoft.commerce.repository.CompraRepository;
+import com.ufcg.psoft.commerce.repository.ResgateRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.io.StringWriter;
+import java.util.List;
+
+@Service
+public class ExtratoServiceImpl implements ExtratoService {
+
+    @Autowired
+    private CompraRepository compraRepository;
+
+    @Autowired
+    private ResgateRepository resgateRepository;
+
+    @Autowired
+    private ClienteRepository clienteRepository;
+
+
+    private String gerarExtratoCompras(Long idCliente) {
+        Cliente cliente = clienteRepository.findById(idCliente)
+                .orElseThrow(ClienteNaoExisteException::new);
+        List<Compra> compras = compraRepository.findByCliente(cliente);
+
+        StringWriter sw = new StringWriter();
+        sw.append("tipo_operacao;id_compra;id_ativo;nome_ativo;tipo_ativo;quantidade;valor_compra;status_compra;data_compra\n");
+
+        compras.forEach(r -> {
+            sw.append("COMPRA").append(";")
+                    .append(String.valueOf(r.getId())).append(";")
+                    .append(String.valueOf(r.getAtivo().getId())).append(";")
+                    .append(r.getAtivo().getNome()).append(";")
+                    .append(r.getAtivo().getTipo().toString()).append(";")
+                    .append(String.valueOf(r.getQuantidade())).append(";")
+                    .append(String.valueOf(r.getValorCompra())).append(";")
+                    .append(r.getEstado()).append(";")
+                    .append(String.valueOf(r.getDataCompra())).append("\n");
+        });
+
+        return sw.toString();
+    }
+
+    private String gerarExtratoResgates(Long idCliente) {
+        Cliente cliente = clienteRepository.findById(idCliente).orElseThrow(ClienteNaoExisteException::new);
+        List<Resgate> resgates = resgateRepository.findByCliente(cliente);
+
+        StringWriter sw = new StringWriter();
+        sw.append("tipo_operacao;id_resgate;id_ativo;nome_ativo;tipo_ativo;quantidade;valor_resgate;lucro;imposto;status;data_resgate;\n");
+
+        resgates.forEach(r -> {
+            sw.append("RESGATE").append(";")
+                    .append(String.valueOf(r.getId())).append(";")
+                    .append(String.valueOf(r.getAtivo().getId())).append(";")
+                    .append(r.getAtivo().getNome()).append(";")
+                    .append(r.getAtivo().getTipo().toString()).append(";")
+                    .append(String.valueOf(r.getQuantidade())).append(";")
+                    .append(String.valueOf(r.getValorResgate())).append(";")
+                    .append(String.valueOf(r.getLucro())).append(";")
+                    .append(String.valueOf(r.getImposto())).append(";")
+                    .append(r.getEstado()).append(";")
+                    .append(String.valueOf(r.getDataResgate())).append(";");
+        });
+
+        return sw.toString();
+    }
+
+
+
+    @Override
+    public String gerarExtrato(Long idCliente) {
+        String extratoCompras = gerarExtratoCompras(idCliente);
+        String extratoResgates = gerarExtratoResgates(idCliente);
+        return extratoCompras + extratoResgates;
+    }
+}
+
+
+
+
+
+
+
