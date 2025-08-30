@@ -387,3 +387,763 @@ public class ExtratoServiceImpl implements ExtratoService {
 
 
 
+
+
+
+package com.ufcg.psoft.commerce.controller;
+
+import com.ufcg.psoft.commerce.dto.ClientePostPutRequestDTO;
+import com.ufcg.psoft.commerce.service.admin.AdminService;
+import com.ufcg.psoft.commerce.service.cliente.ClienteService;
+import com.ufcg.psoft.commerce.service.extrato.ExtratoService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping(
+        value = "/clientes",
+        produces = MediaType.APPLICATION_JSON_VALUE
+)
+@Tag(name = "cliente-controller", description = "Controlador dos clientes")
+public class ClienteController {
+
+    @Autowired
+    private ClienteService clienteService;
+
+    @Autowired
+    private AdminService adminService;
+
+    @Autowired
+    private ExtratoService extratoService;
+
+    @GetMapping("/{id}")
+    @Operation(summary = "Permite um cliente ver o seu cadastro no sistema")
+    public ResponseEntity<?> recuperarCliente(
+            @PathVariable Long id,
+            @RequestParam String codigoCliente) {
+
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(clienteService.recuperar(id, codigoCliente));
+    }
+
+    @GetMapping("")
+    @Operation(summary = "Permite ao admin visualizar os clientes cadastrados sistema")
+    public ResponseEntity<?> listarClientes(
+            @RequestParam(required = false, defaultValue = "") String nome,
+            @RequestParam String codigoAdmin) {
+
+        adminService.validarAdmin(codigoAdmin);
+
+        if (nome != null && !nome.isEmpty()) {
+            return ResponseEntity
+                    .status(HttpStatus.OK)
+                    .body(clienteService.listarPorNome(nome));
+        }
+
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(clienteService.listar());
+    }
+
+    @PostMapping()
+    @Operation(summary = "Permite que o cliente se cadastre no sistema")
+    public ResponseEntity<?> criarCliente(
+            @RequestBody @Valid ClientePostPutRequestDTO clientePostPutRequestDto) {
+
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(clienteService.criar(clientePostPutRequestDto));
+    }
+
+    @PutMapping("/{id}")
+    @Operation(summary = "Permite ao cliente atualizar seus dados no sistema")
+    public ResponseEntity<?> atualizarCliente(
+            @PathVariable Long id,
+            @RequestParam String codigoCliente,
+            @RequestBody @Valid ClientePostPutRequestDTO clientePostPutRequestDto) {
+
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(clienteService.alterar(id, codigoCliente, clientePostPutRequestDto));
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Permite ao cliente excluir seu cadastro no sistema")
+    public ResponseEntity<?> excluirCliente(
+            @PathVariable Long id,
+            @RequestParam String codigoCliente) {
+
+        clienteService.remover(id, codigoCliente);
+
+        return ResponseEntity
+                .status(HttpStatus.NO_CONTENT)
+                .body("");
+    }
+
+    @GetMapping("/{id}/ativos-disponiveis")
+    @Operation(summary = "Permite ao cliente visualizar os ativos disponíveis para o seu plano")
+    public ResponseEntity<?> listarAtivosDisponiveis(
+            @PathVariable Long id,
+            @RequestParam String codigoCliente) {
+        return ResponseEntity.ok(clienteService.listarAtivosParaCliente(id, codigoCliente));
+    }
+
+    @PatchMapping("/{id}/depositar")
+    @Operation(summary = "Permite ao cliente realizar depositos em sua conta")
+    public ResponseEntity<?> depositarSaldo(
+            @PathVariable Long id,
+            @RequestParam String codigoCliente,
+            @RequestParam Double valorDeposito) {
+        return ResponseEntity.ok(clienteService.depositarSaldo(id, codigoCliente, valorDeposito));
+    }
+
+    @GetMapping("/{id}/visualizar-carteira")
+    @Operation(summary = "Permite um cliente visualizar sua carteira")
+    public ResponseEntity<?> visualizarCarteira(
+            @PathVariable Long id,
+            @RequestParam String codigoCliente) {
+
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(clienteService.visualizarCarteira(id, codigoCliente));
+    }
+
+
+    @GetMapping("/{id}/exportar-extrato")
+    @Operation(summary = "Permite um cliente exporte um extrato de todas as suas operações em formato csv")
+    public ResponseEntity<?> exportarExtrato(
+            @PathVariable Long id,
+            @RequestParam String codigoCliente) {
+
+        clienteService.validarCliente(id, codigoCliente);
+
+        String csv = extratoService.gerarExtrato(id);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=extrato-" + id+ ".csv")
+                .contentType(MediaType.valueOf("text/csv"))
+                .body(csv.getBytes());
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+package com.ufcg.psoft.commerce.dto;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.ufcg.psoft.commerce.model.Resgate;
+import jakarta.persistence.*;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import java.time.LocalDate;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class ResgateResponseDTO {
+
+    @JsonProperty("ID do resgate")
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE)
+    private Long id;
+
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    @NotNull
+    private LocalDate dataResgate;
+
+    @JsonProperty("Nome do cliente")
+    @NotBlank
+    private String  nomeDoCliente;
+
+    @JsonProperty("Nome do ativo")
+    @NotBlank
+    private String nomeDoativo;
+
+    @JsonProperty("Valor do resgate")
+    @NotNull
+    private double valorResgate;
+
+    @JsonProperty("Quantidade")
+    @NotNull
+    private int quantidade;
+
+
+    @JsonProperty("Estado do Resgate")
+    @NotBlank
+    private String estado;
+
+    @JsonProperty("Valor líquido")
+    @NotNull
+    private double valorLiquido;
+
+    @JsonProperty("Lucro do resgate")
+    @NotNull
+    private double lucro;
+
+    @JsonProperty("imposto do resgate")
+    @NotNull
+    private double imposto;
+
+
+    public ResgateResponseDTO(Resgate resgate) {
+        this.id = resgate.getId();
+        this.nomeDoCliente = resgate.getCliente().getNome();
+        this.nomeDoativo = resgate.getAtivo().getNome();
+        this.quantidade = resgate.getQuantidade();
+        this.valorResgate = resgate.getValorResgate();
+        this.valorLiquido = resgate.getValorLiquido();
+        this.lucro = resgate.getLucro();
+        this.imposto = resgate.getImposto();
+        this.dataResgate = resgate.getDataResgate();
+        this.estado = resgate.getEstado();
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+package com.ufcg.psoft.commerce.model;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.ufcg.psoft.commerce.model.estados.resgate.*;
+import com.ufcg.psoft.commerce.model.estados.resgate.Confirmado;
+import com.ufcg.psoft.commerce.model.estados.resgate.EstadoResgate;
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import java.time.LocalDate;
+
+@Entity
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class Resgate {
+
+    @JsonProperty("id")
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE)
+    private Long id;
+
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    @Column(nullable = false)
+    private LocalDate dataResgate;
+
+    @JsonProperty
+    @JoinColumn(name = "ativo_id", nullable = false)
+    @ManyToOne(optional = false)
+    private Ativo ativo;
+
+    @JsonProperty
+    @JoinColumn(name = "cliente_id", nullable = false)
+    @ManyToOne(optional = false)
+    private Cliente cliente;
+
+    @JsonProperty("quantidade")
+    @Column(nullable = false)
+    private int quantidade;
+
+    @JsonProperty("valor_resgate")
+    @Column(nullable = false)
+    private double valorResgate;
+
+    @JsonProperty("valor_liquido")
+    @Column(nullable = false)
+    private double valorLiquido;
+
+    @JsonProperty("estado")
+    @Column(nullable = false)
+    private String estado;
+
+    @JsonProperty("lucro")
+    @Column(nullable = false)
+    private double lucro;
+
+    @JsonProperty("imposto")
+    @Column(nullable = false)
+    private double imposto;
+
+    @Transient
+    private EstadoResgate estadoResgate;
+
+
+    @PrePersist
+    @PreUpdate
+    public void initEstado() {
+        if (estadoResgate == null) {
+            setEstadoResgate(new Solicitado());
+            this.estado = estadoResgate.getNome();
+        }
+    }
+    @PostLoad
+    public void carregarEstado() {
+        switch (this.estado) {
+            case "SOLICITADO":
+                this.estadoResgate = new Solicitado();
+                break;
+            case "CONFIRMADO":
+                this.estadoResgate = new Confirmado(this);
+                break;
+            case "EM CONTA":
+                this.estadoResgate = new EmConta(this);
+                break;
+        }
+    }
+
+    public void processar() {
+        this.estadoResgate.processarResgate(this);
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+package com.ufcg.psoft.commerce.service.carteira;
+
+import com.ufcg.psoft.commerce.exception.cliente.ClienteNaoExisteException;
+import com.ufcg.psoft.commerce.exception.compra.CompraNaoExisteException;
+import com.ufcg.psoft.commerce.exception.compra.QuantidadeAtivoException;
+import com.ufcg.psoft.commerce.exception.resgate.ClienteNaoPossuiAtivoException;
+import com.ufcg.psoft.commerce.model.*;
+import com.ufcg.psoft.commerce.repository.CarteiraPosicaoRepository;
+import com.ufcg.psoft.commerce.repository.CarteiraRepository;
+import com.ufcg.psoft.commerce.repository.ClienteRepository;
+import com.ufcg.psoft.commerce.repository.CompraRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import java.util.ArrayList;
+
+@Service
+public class CarteiraServiceImpl implements CarteiraService {
+
+    @Autowired
+    private ClienteRepository clienteRepository;
+
+    @Autowired
+    private CarteiraRepository carteiraRepository;
+
+    @Autowired
+    private CompraRepository compraRepository;
+
+    @Autowired
+    private CarteiraPosicaoRepository carteiraPosicaoRepository;
+
+    public void addCompraCarteira(Long idCliente, Long idCompra) {
+        Cliente cliente = clienteRepository.findById(idCliente).orElseThrow(ClienteNaoExisteException::new);
+        Compra compra = compraRepository.findById(idCompra).orElseThrow(CompraNaoExisteException::new);
+
+        if (cliente.getCarteira() == null) criaCarteira(cliente);
+        Carteira carteira = cliente.getCarteira();
+
+        carteira.addCompra(compra);
+        addPosicaoCarteira(carteira, compra);
+    }
+
+    private void criaCarteira(Cliente cliente) {
+        Carteira carteira = Carteira.builder()
+                .cliente(cliente)
+                .compras(new ArrayList<>())
+                .build();
+
+        carteiraRepository.save(carteira);
+
+        cliente.setCarteira(carteira);
+        clienteRepository.save(cliente);
+    }
+
+    private void addPosicaoCarteira(Carteira carteira, Compra compra) {
+        Ativo ativo = compra.getAtivo();
+        Integer quantidade = compra.getQuantidade();
+        Double valor = compra.getValorCompra();
+        Double valorAtivo = compra.getAtivo().getValor();
+        double desempenho = (valorAtivo * quantidade - valor);
+
+        CarteiraPosicao pos = carteiraPosicaoRepository.findByCarteiraIdAndAtivoId(carteira.getId(), ativo.getId());
+        if (pos != null) {
+            pos.setQuantidade(pos.getQuantidade() + quantidade);
+            pos.setValorCompra(pos.getValorCompra() + valor);
+            pos.setDesempenho(pos.getDesempenho() + desempenho);
+            carteiraPosicaoRepository.save(pos);
+        }
+        else {
+            CarteiraPosicao nova = CarteiraPosicao.builder()
+                    .carteira(carteira)
+                    .ativo(ativo)
+                    .valorCompra(compra.getValorCompra())
+                    .quantidade(quantidade)
+                    .desempenho(desempenho)
+                    .build();
+            carteiraPosicaoRepository.save(nova);
+        }
+
+        carteiraRepository.save(carteira);
+    }
+
+    public void removePosicaoCarteira(Carteira carteira, Resgate resgate) {
+        CarteiraPosicao pos = carteiraPosicaoRepository.findByCarteiraIdAndAtivoId(carteira.getId(), resgate.getAtivo().getId());
+        if(pos == null) throw new ClienteNaoPossuiAtivoException();
+        if(resgate.getQuantidade() <= 0) throw new QuantidadeAtivoException();
+
+        double valorPorAtivo = pos.getValorCompra() / pos.getQuantidade();
+
+        pos.setQuantidade(pos.getQuantidade() - resgate.getQuantidade());
+        pos.setValorCompra(pos.getValorCompra() - (resgate.getQuantidade() * valorPorAtivo));
+
+        Cliente cliente = resgate.getCliente();
+        cliente.setSaldo(cliente.getSaldo() + resgate.getValorLiquido());
+
+        if(pos.getQuantidade() == 0) {
+            carteiraPosicaoRepository.delete(pos);
+            carteiraRepository.save(carteira);
+            clienteRepository.save(cliente);
+        }
+
+        carteiraPosicaoRepository.save(pos);
+        carteiraRepository.save(carteira);
+        clienteRepository.save(cliente);
+    }
+}
+
+
+
+
+
+
+
+
+
+
+package com.ufcg.psoft.commerce.service.extrato;
+
+public interface ExtratoService {
+    String gerarExtrato(Long idCliente);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+package com.ufcg.psoft.commerce.service.extrato;
+
+import com.ufcg.psoft.commerce.exception.cliente.ClienteNaoExisteException;
+import com.ufcg.psoft.commerce.model.Cliente;
+import com.ufcg.psoft.commerce.model.Compra;
+import com.ufcg.psoft.commerce.model.Resgate;
+import com.ufcg.psoft.commerce.repository.ClienteRepository;
+import com.ufcg.psoft.commerce.repository.CompraRepository;
+import com.ufcg.psoft.commerce.repository.ResgateRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.io.StringWriter;
+import java.util.List;
+
+@Service
+public class ExtratoServiceImpl implements ExtratoService {
+
+    @Autowired
+    private CompraRepository compraRepository;
+
+    @Autowired
+    private ResgateRepository resgateRepository;
+
+    @Autowired
+    private ClienteRepository clienteRepository;
+
+
+    private String gerarExtratoCompras(Long idCliente) {
+        Cliente cliente = clienteRepository.findById(idCliente)
+                .orElseThrow(ClienteNaoExisteException::new);
+        List<Compra> compras = compraRepository.findByCliente(cliente);
+
+        StringWriter sw = new StringWriter();
+        sw.append("tipo_operacao;id_compra;id_ativo;nome_ativo;tipo_ativo;quantidade;valor_compra;status_compra;data_compra\n");
+
+        compras.forEach(r -> {
+            sw.append("COMPRA").append(";")
+                    .append(String.valueOf(r.getId())).append(";")
+                    .append(String.valueOf(r.getAtivo().getId())).append(";")
+                    .append(r.getAtivo().getNome()).append(";")
+                    .append(r.getAtivo().getTipo().toString()).append(";")
+                    .append(String.valueOf(r.getQuantidade())).append(";")
+                    .append(String.valueOf(r.getValorCompra())).append(";")
+                    .append(r.getEstado()).append(";")
+                    .append(String.valueOf(r.getDataCompra())).append("\n");
+        });
+
+        return sw.toString();
+    }
+
+    private String gerarExtratoResgates(Long idCliente) {
+        Cliente cliente = clienteRepository.findById(idCliente).orElseThrow(ClienteNaoExisteException::new);
+        List<Resgate> resgates = resgateRepository.findByCliente(cliente);
+
+        StringWriter sw = new StringWriter();
+        sw.append("tipo_operacao;id_resgate;id_ativo;nome_ativo;tipo_ativo;quantidade;valor_resgate;valor_liquido;lucro;imposto;status;data_resgate;\n");
+
+        resgates.forEach(r -> {
+            sw.append("RESGATE").append(";")
+                    .append(String.valueOf(r.getId())).append(";")
+                    .append(String.valueOf(r.getAtivo().getId())).append(";")
+                    .append(r.getAtivo().getNome()).append(";")
+                    .append(r.getAtivo().getTipo().toString()).append(";")
+                    .append(String.valueOf(r.getQuantidade())).append(";")
+                    .append(String.valueOf(r.getValorResgate())).append(";")
+                    .append(String.valueOf(r.getValorLiquido())).append(";")
+                    .append(String.valueOf(r.getLucro())).append(";")
+                    .append(String.valueOf(r.getImposto())).append(";")
+                    .append(r.getEstado()).append(";")
+                    .append(String.valueOf(r.getDataResgate())).append(";");
+        });
+
+        return sw.toString();
+    }
+
+
+
+    @Override
+    public String gerarExtrato(Long idCliente) {
+        String extratoCompras = gerarExtratoCompras(idCliente);
+        String extratoResgates = gerarExtratoResgates(idCliente);
+        return extratoCompras + extratoResgates;
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+package com.ufcg.psoft.commerce.service.resgate;
+
+import com.ufcg.psoft.commerce.dto.ResgateResponseDTO;
+import com.ufcg.psoft.commerce.exception.cliente.ClienteNaoExisteException;
+import com.ufcg.psoft.commerce.exception.cliente.ClienteNaoPossuiCarteiraException;
+import com.ufcg.psoft.commerce.exception.compra.QuantidadeAtivoException;
+import com.ufcg.psoft.commerce.exception.resgate.*;
+import com.ufcg.psoft.commerce.model.*;
+import com.ufcg.psoft.commerce.model.estados.resgate.Solicitado;
+import com.ufcg.psoft.commerce.repository.*;
+import com.ufcg.psoft.commerce.service.carteira.CarteiraService;
+import com.ufcg.psoft.commerce.service.cliente.ClienteService;
+import com.ufcg.psoft.commerce.service.imposto.ImpostoService;
+import com.ufcg.psoft.commerce.service.notificacao.NotificacaoService;
+import jakarta.transaction.Transactional;
+import org.modelmapper.ModelMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+public class ResgateServiceImpl implements ResgateService {
+
+    @Autowired
+    private ClienteRepository clienteRepository;
+
+    @Autowired
+    private ClienteService clienteService;
+
+    @Autowired
+    private ResgateRepository resgateRepository;
+
+    @Autowired
+    private AtivoRepository ativoRepository;
+
+    @Autowired
+    private ModelMapper modelMapper;
+
+    @Autowired
+    private NotificacaoService notificacaoService;
+
+    @Autowired
+    private CarteiraPosicaoRepository carteiraPosicaoRepository;
+
+    @Autowired
+    private CarteiraRepository carteiraRepository;
+
+    @Autowired
+    private ImpostoService impostoService;
+
+    @Autowired
+    private CarteiraService carteiraService;
+
+
+    @Override
+    @Transactional
+    public void resgatarAtivo(Long clienteId, String codigoAcesso, Long ativoId, Integer quantAtivo) {
+        Cliente cliente = clienteRepository.findById(clienteId).orElseThrow(ClienteNaoExisteException::new);
+        Carteira carteira = carteiraRepository.findById(cliente.getCarteira().getId()).orElseThrow(ClienteNaoPossuiCarteiraException::new);
+        CarteiraPosicao pos = carteiraPosicaoRepository.findByCarteiraIdAndAtivoId(carteira.getId(), ativoId);
+
+        if(pos == null) throw new ClienteNaoPossuiAtivoException();
+        if(quantAtivo <= 0) throw new QuantidadeAtivoException();
+        if(quantAtivo > pos.getQuantidade()) throw new ClienteNaoPossuiQtdException();
+
+        double valorResgate = (pos.getAtivo().getValor() * quantAtivo);
+        double lucro = (pos.getDesempenho() / pos.getQuantidade()) * quantAtivo;
+        double imposto = impostoService.calcularImposto(pos.getAtivo(), lucro);
+
+        Resgate resgate = Resgate.builder()
+                .cliente(cliente)
+                .ativo(pos.getAtivo())
+                .dataResgate(LocalDate.now())
+                .quantidade(quantAtivo)
+                .valorResgate(valorResgate)
+                .valorLiquido(valorResgate - imposto)
+                .estadoResgate(new Solicitado())
+                .lucro(lucro)
+                .imposto(imposto)
+                .estado("SOLICITADO")
+                .build();
+        resgateRepository.save(resgate);
+    }
+
+    @Override
+    public void processarSolicitacaoAdmin(Long id) {
+        Resgate resgate = resgateRepository.findById(id).orElseThrow(ResgateNaoSolicitadoException::new);
+        Carteira carteira = carteiraRepository.findByClienteId(resgate.getCliente().getId());
+
+        if(!resgate.getEstado().equals("SOLICITADO")) throw new ResgateNaoSolicitadoException();
+
+        resgate.processar(); //status confirmado
+
+        carteiraService.removePosicaoCarteira(carteira, resgate);
+
+        notificacaoService.notificarConfirmacaoResgate(id);
+
+        resgate.processar(); //status em conta
+
+        resgateRepository.save(resgate);
+    }
+
+    @Override
+    public List<ResgateResponseDTO> listar() {
+        return resgateRepository.findAll()
+                .stream()
+                .map(ResgateResponseDTO::new).toList();
+    }
+
+    @Override
+    public List<ResgateResponseDTO> listarParaCliente(Long idCliente) {
+        Cliente cliente = clienteRepository.findById(idCliente).orElseThrow(ClienteNaoExisteException::new);
+
+        return resgateRepository.findByCliente(cliente).stream()
+                .map(ResgateResponseDTO::new)
+                .collect(Collectors.toList());
+    }
+
+
+    @Override
+    public List<ResgateResponseDTO> listarPorTipoAtivoCliente(Long idCliente, TipoAtivo tipoAtivo) {
+        Cliente cliente = clienteRepository.findById(idCliente).orElseThrow(ClienteNaoExisteException::new);
+
+        return resgateRepository.findByCliente(cliente).stream()
+                .filter(resgate -> resgate.getAtivo().getTipo() == tipoAtivo)
+                .map(ResgateResponseDTO::new)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<ResgateResponseDTO> listarPorDataCliente(Long idCliente, LocalDate data) {
+        Cliente cliente = clienteRepository.findById(idCliente).orElseThrow(ClienteNaoExisteException::new);
+
+        return resgateRepository.findByClienteAndDataResgate(cliente, data)
+                .stream()
+                .map(ResgateResponseDTO::new)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<ResgateResponseDTO> listarPorStatusCliente(Long idCliente, String status) {
+        Cliente cliente = clienteRepository.findById(idCliente).orElseThrow(ClienteNaoExisteException::new);
+
+        return resgateRepository.findByCliente(cliente).stream()
+                .filter(resgate -> resgate.getEstado().equalsIgnoreCase(status))
+                .map(ResgateResponseDTO::new)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<ResgateResponseDTO> listarPorTipoAtivo(TipoAtivo tipoAtivo) {
+        return resgateRepository.findAll().stream()
+                .filter(resgate -> resgate.getAtivo().getTipo() == tipoAtivo)
+                .map(ResgateResponseDTO::new)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<ResgateResponseDTO> listarPorData(LocalDate data) {
+        return resgateRepository.findByDataResgate(data).stream()
+                .map(ResgateResponseDTO::new)
+                .collect(Collectors.toList());
+    }
+}
+
+
+
+
+
+
+
